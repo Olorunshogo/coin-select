@@ -1,7 +1,7 @@
 #![allow(clippy::zero_prefixed_literal)]
 
 use bdk_coin_select::{
-    Candidate, CoinSelector, Drain, DrainWeights, Target, TargetFee, TargetOutputs,
+    Candidate, Change, ChangeWeights, CoinSelector, Target, TargetFee, TargetOutputs,
 };
 use bitcoin::{consensus::Decodable, Script, ScriptBuf, Transaction, TxIn};
 use miniscript::{Descriptor, Miniscript};
@@ -57,12 +57,12 @@ fn segwit_one_input_one_output() {
     coin_selector.select_all();
 
     assert_eq!(
-        coin_selector.weight(DrainWeights::NONE),
+        coin_selector.weight(ChangeWeights::NONE),
         tx.weight().to_wu()
     );
     assert_eq!(
         (coin_selector
-            .implied_feerate(Drain::NONE)
+            .implied_feerate(Change::NONE)
             .unwrap()
             .as_sat_vb()
             * 10.0)
@@ -104,12 +104,12 @@ fn segwit_two_inputs_one_output() {
     coin_selector.select_all();
 
     assert_eq!(
-        coin_selector.weight(DrainWeights::NONE),
+        coin_selector.weight(ChangeWeights::NONE),
         tx.weight().to_wu()
     );
     assert_eq!(
         (coin_selector
-            .implied_feerate(Drain::NONE)
+            .implied_feerate(Change::NONE)
             .unwrap()
             .as_sat_vb()
             * 10.0)
@@ -158,12 +158,12 @@ fn legacy_three_inputs() {
     // Every tx is priced as segwit, so an all-legacy tx pays for the 2 WU witness header and a
     // 1 WU empty witness per input that it doesn't actually serialize.
     assert_eq!(
-        coin_selector.weight(DrainWeights::NONE),
+        coin_selector.weight(ChangeWeights::NONE),
         orig_weight.to_wu() + 2 + 3
     );
     assert_eq!(
         (coin_selector
-            .implied_feerate(Drain::NONE)
+            .implied_feerate(Change::NONE)
             .unwrap()
             .as_sat_vb()
             * 10.0)
@@ -215,7 +215,7 @@ fn legacy_three_inputs_one_segwit() {
     coin_selector.select_all();
 
     assert_eq!(
-        coin_selector.weight(DrainWeights::NONE),
+        coin_selector.weight(ChangeWeights::NONE),
         tx.weight().to_wu()
     );
 }
@@ -271,7 +271,7 @@ fn new_with_miniscript_max_weight_to_satisfy_covers_real_inputs() {
     let weight_spending_all = |candidates: &[Candidate]| {
         let mut coin_selector = CoinSelector::new(candidates, target);
         coin_selector.select_all();
-        coin_selector.weight(DrainWeights::NONE)
+        coin_selector.weight(ChangeWeights::NONE)
     };
 
     // A legacy and a segwit input in one candidate.

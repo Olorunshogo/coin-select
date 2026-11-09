@@ -3,7 +3,7 @@ mod common;
 use bdk_coin_select::{
     float::Ordf64,
     metrics::{Changeless, LowestFee},
-    Candidate, CoinSelector, DrainWeights, FeeRate, Target, TargetFee, TargetOutputs,
+    Candidate, ChangeWeights, CoinSelector, FeeRate, Target, TargetFee, TargetOutputs,
 };
 use proptest::{prelude::*, proptest, test_runner::*};
 use rand::{prelude::IteratorRandom, Rng, RngCore};
@@ -34,19 +34,19 @@ proptest! {
         replace in common::maybe_replace(0..10_000u64), // The weight of the transaction we're replacing
         feerate in 1.0..100.0_f64,          // feerate (sats/vb)
         feerate_lt_diff in -5.0..50.0_f64,  // longterm feerate diff (sats/vb)
-        drain_weight in 100..=500_u32,      // drain weight (wu)
-        drain_spend_weight in 1..=2000_u32, // drain spend weight (wu)
-        drain_dust in 100..=1000_u64,       // drain dust (sats)
-        n_drain_outputs in 1..150usize,     // the number of drain outputs
+        change_weight in 100..=500_u32,      // change weight (wu)
+        change_spend_weight in 1..=2000_u32, // change spend weight (wu)
+        change_dust in 100..=1000_u64,       // change dust (sats)
+        n_change_outputs in 1..150usize,     // the number of change outputs
     ) {
         println!("=======================================");
         let start = std::time::Instant::now();
         let mut rng = TestRng::deterministic_rng(RngAlgorithm::ChaCha);
         let feerate = FeeRate::from_sat_per_vb(feerate);
-        let drain_weights = DrainWeights {
-            output_weight: drain_weight as u64,
-            spend_weight: drain_spend_weight as u64,
-            n_outputs: n_drain_outputs,
+        let change_weights = ChangeWeights {
+            output_weight: change_weight as u64,
+            spend_weight: change_spend_weight as u64,
+            n_outputs: n_change_outputs,
         };
 
         let wv = test_wv(&mut rng);
@@ -72,7 +72,7 @@ proptest! {
             Changeless(LowestFee {
                 long_term_feerate: feerate,
                 dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-                drain_weights,
+                change_weights,
             })
         };
 

@@ -1,4 +1,4 @@
-use crate::{varint_size, DrainWeights, FeeRate};
+use crate::{varint_size, ChangeWeights, FeeRate};
 
 /// A target value to select for along with feerate constraints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
@@ -40,16 +40,16 @@ impl TargetOutputs {
         self.weight_sum + varint_size(self.n_outputs) * 4
     }
 
-    /// The output weight of the target's outputs combined with the drain outputs defined by
-    /// `drain_weight`.
+    /// The output weight of the target's outputs combined with the change outputs defined by
+    /// `change_weight`.
     ///
-    /// This is not a simple addition of the `drain_weight` and [`output_weight`] because of how
-    /// adding the drain weights might add an extra vbyte for the length of the varint.
+    /// This is not a simple addition of the `change_weight` and [`output_weight`] because of how
+    /// adding the change weights might add an extra vbyte for the length of the varint.
     ///
     /// [`output_weight`]: Self::output_weight
-    pub fn output_weight_with_drain(&self, drain_weight: DrainWeights) -> u64 {
-        let n_outputs = drain_weight.n_outputs + self.n_outputs;
-        varint_size(n_outputs) * 4 + drain_weight.output_weight + self.weight_sum
+    pub fn output_weight_with_change(&self, change_weight: ChangeWeights) -> u64 {
+        let n_outputs = change_weight.n_outputs + self.n_outputs;
+        varint_size(n_outputs) * 4 + change_weight.output_weight + self.weight_sum
     }
 
     /// Creates a `TargetOutputs` from a list of outputs represented as `(weight, value)` pairs.

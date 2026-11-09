@@ -1,6 +1,6 @@
 use core::cmp::Reverse;
 
-use crate::{float::Ordf64, Drain};
+use crate::{float::Ordf64, Change};
 
 use super::CoinSelector;
 use alloc::collections::BinaryHeap;
@@ -224,12 +224,12 @@ pub trait BnbMetric {
     /// solutions.
     fn bound(&mut self, cs: &CoinSelector<'_>) -> Option<Ordf64>;
 
-    /// The change output (a.k.a. drain) this metric decides on for the selection `cs` and
-    /// [`cs.target()`](CoinSelector::target), or [`Drain::NONE`] if it decides there should be no
+    /// The change output this metric decides on for the selection `cs` and
+    /// [`cs.target()`](CoinSelector::target), or [`Change::NONE`] if it decides there should be no
     /// change.
     ///
     /// Call this on a branch-and-bound solution to get the change output the metric optimized against.
-    fn drain(&mut self, cs: &CoinSelector<'_>) -> Drain;
+    fn change(&mut self, cs: &CoinSelector<'_>) -> Change;
 
     /// Returns whether the metric requies we order candidates by descending value per weight unit.
     fn requires_ordering_by_descending_value_pwu(&self) -> bool {

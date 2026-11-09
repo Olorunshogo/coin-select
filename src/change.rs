@@ -2,39 +2,39 @@
 use crate::float::FloatExt;
 use crate::{varint_size, FeeRate, TR_KEYSPEND_TXIN_WEIGHT, TR_SPK_WEIGHT, TXOUT_BASE_WEIGHT};
 
-/// Represents the weight costs of a drain (a.k.a. change) output.
+/// Represents the weight costs of a change output.
 ///
 /// May also represent multiple outputs.
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct DrainWeights {
-    /// The weight of including this drain output.
+pub struct ChangeWeights {
+    /// The weight of including this change output.
     ///
     /// This must not take into account any weight change from varint output count.
     pub output_weight: u64,
-    /// The weight of spending this drain output (in the future).
+    /// The weight of spending this change output (in the future).
     pub spend_weight: u64,
-    /// The total number of outputs that the drain will use
+    /// The total number of outputs that the change will use
     pub n_outputs: usize,
 }
 
-impl DrainWeights {
-    /// `DrainWeights` for an output that will be spent with a taproot keyspend
+impl ChangeWeights {
+    /// `ChangeWeights` for an output that will be spent with a taproot keyspend
     pub const TR_KEYSPEND: Self = Self {
         output_weight: TXOUT_BASE_WEIGHT + TR_SPK_WEIGHT,
         spend_weight: TR_KEYSPEND_TXIN_WEIGHT,
         n_outputs: 1,
     };
 
-    /// `DrainWeights` for no drain at all
+    /// `ChangeWeights` for no change at all
     pub const NONE: Self = Self {
         output_weight: 0,
         spend_weight: 0,
         n_outputs: 0,
     };
 
-    /// The waste of adding this drain to a transaction according to the [waste metric].
+    /// The waste of adding this change to a transaction according to the [waste metric].
     ///
-    /// To get the precise answer you need to pass in the number of non-drain outputs (`n_target_outputs`) that you're
+    /// To get the precise answer you need to pass in the number of non-change outputs (`n_target_outputs`) that you're
     /// adding to the transaction so we can include the cost of increasing the varint size of the output length.
     ///
     /// [waste metric]: https://bitcoin.stackexchange.com/questions/113622/what-does-waste-metric-mean-in-the-context-of-coin-selection
@@ -67,57 +67,57 @@ impl DrainWeights {
     }
 }
 
-/// A drain (A.K.A. change) output.
+/// A change output.
 /// Technically it could represent multiple outputs.
 ///
-/// This is returned from [`CoinSelector::drain`]. Note if `drain` returns a drain where `is_none()`
+/// This is returned from [`CoinSelector::change`]. Note if `change` returns a change where `is_none()`
 /// returns true then **no change should be added** to the transaction.
 ///
-/// [`CoinSelector::drain`]: crate::CoinSelector::drain
+/// [`CoinSelector::change`]: crate::CoinSelector::change
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub struct Drain {
-    /// Weight of adding drain output and spending the drain output.
-    pub weights: DrainWeights,
-    /// The value that should be assigned to the drain.
+pub struct Change {
+    /// Weight of adding change output and spending the change output.
+    pub weights: ChangeWeights,
+    /// The value that should be assigned to the change.
     pub value: u64,
 }
 
-impl Drain {
-    /// The drain which represents no drain at all. We could but don't use `Option` because this
-    /// causes friction internally, instead we just use a `Drain` with all 0 values.
-    pub const NONE: Self = Drain {
-        weights: DrainWeights::NONE,
+impl Change {
+    /// The change which represents no change at all. We could but don't use `Option` because this
+    /// causes friction internally, instead we just use a `Change` with all 0 values.
+    pub const NONE: Self = Change {
+        weights: ChangeWeights::NONE,
         value: 0,
     };
 
-    /// is the "none" drain
+    /// is the "none" change
     pub fn is_none(&self) -> bool {
-        self == &Drain::NONE
+        self == &Change::NONE
     }
 
-    /// Is not the "none" drain
+    /// Is not the "none" change
     pub fn is_some(&self) -> bool {
         !self.is_none()
     }
 }
 
 /// Describes when a change output (although it could represent several) should be added that drains
-/// the excess in the coin selection. It includes the `drain_weights` to account for the cost of
+/// the excess in the coin selection. It includes the `change_weights` to account for the cost of
 /// adding this outupt(s).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChangePolicy {
     /// The minimum amount of excess there needs to be add a change output.
     pub min_value: u64,
-    /// The weights of the drain that would be added according to the policy.
-    pub drain_weights: DrainWeights,
+    /// The weights of the change that would be added according to the policy.
+    pub change_weights: ChangeWeights,
 }
 
 impl ChangePolicy {
     /// Construct a change policy that creates change when the change value is greater than
     /// `min_value`.
-    pub fn min_value(drain_weights: DrainWeights, min_value: u64) -> Self {
+    pub fn min_value(change_weights: ChangeWeights, min_value: u64) -> Self {
         Self {
-            drain_weights,
+            change_weights,
             min_value,
         }
     }
@@ -125,13 +125,13 @@ impl ChangePolicy {
     /// Construct a change policy that creates change when it would reduce the transaction waste
     /// given that `min_value` is respected.
     pub fn min_value_and_waste(
-        drain_weights: DrainWeights,
+        change_weights: ChangeWeights,
         min_value: u64,
         target_feerate: FeeRate,
         long_term_feerate: FeeRate,
     ) -> Self {
         // The output waste of a changeless solution is the excess.
-        let waste_with_change = drain_weights
+        let waste_with_change = change_weights
             .waste(
                 target_feerate,
                 long_term_feerate,
@@ -140,7 +140,7 @@ impl ChangePolicy {
             .ceil() as u64;
 
         Self {
-            drain_weights,
+            change_weights,
             min_value: waste_with_change.max(min_value),
         }
     }

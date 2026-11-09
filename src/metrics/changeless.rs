@@ -1,9 +1,9 @@
-use crate::{bnb::BnbMetric, float::Ordf64, CoinSelector, Drain};
+use crate::{bnb::BnbMetric, float::Ordf64, Change, CoinSelector};
 
 /// Constrains an `inner` metric to only changeless solutions.
 ///
 /// A selection is scored by `inner` only if the inner metric decides it should *not* have a change
-/// output (see [`BnbMetric::drain`]); otherwise it is treated as invalid. This lets you find, for
+/// output (see [`BnbMetric::change`]); otherwise it is treated as invalid. This lets you find, for
 /// example, the lowest-fee changeless solution via `Changeless<LowestFee>`.
 #[derive(Clone, Copy, Debug)]
 pub struct Changeless<M>(
@@ -27,7 +27,7 @@ impl<M: BnbMetric> Changeless<M> {
     ///
     /// [`requires_ordering_by_descending_value_pwu`]: BnbMetric::requires_ordering_by_descending_value_pwu
     fn change_unavoidable(&mut self, cs: &CoinSelector<'_>) -> bool {
-        if self.0.drain(cs).is_none() {
+        if self.0.change(cs).is_none() {
             return false;
         }
 
@@ -39,24 +39,24 @@ impl<M: BnbMetric> Changeless<M> {
                 least_excess.select(index);
             });
 
-        self.0.drain(&least_excess).is_some()
+        self.0.change(&least_excess).is_some()
     }
 }
 
 impl<M: BnbMetric> BnbMetric for Changeless<M> {
-    fn drain(&mut self, _cs: &CoinSelector<'_>) -> Drain {
+    fn change(&mut self, _cs: &CoinSelector<'_>) -> Change {
         // by definition a changeless selection never has a change output
-        Drain::NONE
+        Change::NONE
     }
 
     fn score(&mut self, cs: &CoinSelector<'_>) -> Option<Ordf64> {
         // Reject selections that have change. We don't need an explicit target-met check: `inner`
         // returns `None` for invalid (e.g. not-target-met) selections.
         //
-        // NOTE: for metrics whose `score` recomputes the drain (e.g. `LowestFee`), this evaluates
-        // the drain decision twice per node. Sharing it would mean threading the drain into
+        // NOTE: for metrics whose `score` recomputes the change (e.g. `LowestFee`), this evaluates
+        // the change decision twice per node. Sharing it would mean threading the change into
         // `score`, which we avoid to keep metrics composable.
-        if self.0.drain(cs).is_some() {
+        if self.0.change(cs).is_some() {
             return None;
         }
         self.0.score(cs)

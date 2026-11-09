@@ -9,7 +9,7 @@
 
 ```rust
 use std::str::FromStr;
-use bdk_coin_select::{ CoinSelector, Candidate, TR_KEYSPEND_TXIN_WEIGHT, Drain, FeeRate, Target, ChangePolicy, TargetOutputs, TargetFee, DrainWeights};
+use bdk_coin_select::{ CoinSelector, Candidate, TR_KEYSPEND_TXIN_WEIGHT, Change, FeeRate, Target, ChangePolicy, TargetOutputs, TargetFee, ChangeWeights};
 use bitcoin::{ Amount, Address, Network, Transaction, TxIn, TxOut };
 
 let recipient_addr: Address = "tb1pvjf9t34fznr53u5tqhejz4nr69luzkhlvsdsdfq9pglutrpve2xq7hps46"
@@ -64,10 +64,10 @@ assert!(coin_selector.is_funded(), "we should have enough now");
 //
 // We don't need to know exactly which change output we're going to use yet but we assume it's a taproot output
 // that we'll use a keyspend to spend from.
-let drain_weights = DrainWeights::TR_KEYSPEND; 
+let change_weights = ChangeWeights::TR_KEYSPEND; 
 // Our policy is to only add a change output if the value is over 1_000 sats
-let change_policy = ChangePolicy::min_value(drain_weights, 1_000);
-let change = coin_selector.drain(change_policy);
+let change_policy = ChangePolicy::min_value(change_weights, 1_000);
+let change = coin_selector.change(change_policy);
 if change.is_some() {
     println!("We need to add our change output to the transaction with {} value", change.value);
 } else {
@@ -118,7 +118,7 @@ let candidates = [
         weight: TR_KEYSPEND_TXIN_WEIGHT,
     }
 ];
-let drain_weights = bdk_coin_select::DrainWeights::default();
+let change_weights = bdk_coin_select::ChangeWeights::default();
 // You could determine this by looking at the user's transaction history and taking an average of the feerate.
 let long_term_feerate = FeeRate::from_sat_per_vb(10.0);
 
@@ -140,7 +140,7 @@ let dust_relay_feerate = FeeRate::from_sat_per_vb(3.0);
 let mut metric = LowestFee {
     long_term_feerate, // used to calculate the cost of spending the change output in the future
     dust_relay_feerate,
-    drain_weights,
+    change_weights,
 };
 
 // We run the branch and bound algorithm with a max round limit of 100,000.
@@ -151,7 +151,7 @@ let change = match coin_selector.run_bnb(metric, 100_000) {
         // fall back to naive selection
         coin_selector.select_until_target_met().expect("a selection was impossible!");
         // the metric still decides the change output for whatever we end up selecting
-        metric.drain(&coin_selector)
+        metric.change(&coin_selector)
     }
     Ok((score, change)) => {
         println!("we found a solution with score {}", score);

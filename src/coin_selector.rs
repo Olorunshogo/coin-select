@@ -32,7 +32,7 @@ impl<'a> CoinSelector<'a> {
     ///
     /// The `CoinSelector` does not keep track of the final transaction's output count. The caller
     /// is responsible for including the potential output-count varint weight change in the
-    /// corresponding [`DrainWeights`].
+    /// corresponding [`ChangeWeights`].
     ///
     /// Note that methods in `CoinSelector` will refer to inputs by the index in the `candidates`
     /// slice you pass in.
@@ -204,12 +204,12 @@ impl<'a> CoinSelector<'a> {
 
     /// Current weight of transaction implied by the selection.
     ///
-    /// If you don't have any drain outputs (only target outputs) just set drain_weights to
-    /// [`DrainWeights::NONE`].
-    pub fn weight(&self, drain_weight: DrainWeights) -> u64 {
+    /// If you don't have any change outputs (only target outputs) just set change_weights to
+    /// [`ChangeWeights::NONE`].
+    pub fn weight(&self, change_weight: ChangeWeights) -> u64 {
         TX_FIXED_FIELD_WEIGHT
             + self.input_weight()
-            + self.target.outputs.output_weight_with_drain(drain_weight)
+            + self.target.outputs.output_weight_with_change(change_weight)
     }
 
     /// How much the current selection overshoots the value needed to achieve the
@@ -217,15 +217,15 @@ impl<'a> CoinSelector<'a> {
     ///
     /// In order for the resulting transaction to be valid this must be 0 or above. If it's above 0
     /// this means the transaction will overpay for what it needs to reach the target.
-    pub fn excess(&self, drain: Drain) -> i64 {
-        self.rate_excess(drain)
-            .min(self.absolute_excess(drain))
-            .min(self.replacement_excess(drain))
+    pub fn excess(&self, change: Change) -> i64 {
+        self.rate_excess(change)
+            .min(self.absolute_excess(change))
+            .min(self.replacement_excess(change))
     }
 
     /// How much extra value needs to be selected to reach the target.
     pub fn missing(&self) -> u64 {
-        let excess = self.excess(Drain::NONE);
+        let excess = self.excess(Change::NONE);
         if excess < 0 {
             excess.unsigned_abs()
         } else {
@@ -235,55 +235,55 @@ impl<'a> CoinSelector<'a> {
 
     /// How much the current selection overshoots the value need to satisfy `self.target.fee.rate` and
     /// `self.target.value` (while ignoring `self.target.fee.absolute`).
-    pub fn rate_excess(&self, drain: Drain) -> i64 {
+    pub fn rate_excess(&self, change: Change) -> i64 {
         self.selected_value() as i64
             - self.target.value() as i64
-            - drain.value as i64
-            - self.implied_fee_from_feerate(drain.weights) as i64
+            - change.value as i64
+            - self.implied_fee_from_feerate(change.weights) as i64
     }
 
     /// Same as [rate_excess](Self::rate_excess) except `self.target.fee.rate` is applied to the
     /// implied transaction's weight units directly without any conversion to vbytes.
-    pub fn rate_excess_wu(&self, drain: Drain) -> i64 {
+    pub fn rate_excess_wu(&self, change: Change) -> i64 {
         self.selected_value() as i64
             - self.target.value() as i64
-            - drain.value as i64
-            - self.implied_fee_from_feerate_wu(drain.weights) as i64
+            - change.value as i64
+            - self.implied_fee_from_feerate_wu(change.weights) as i64
     }
 
     /// How much the current selection overshoots the value needed to satisfy `self.target.fee.absolute`
     /// and `self.target.value` (while ignoring `self.target.fee.rate`).
-    pub fn absolute_excess(&self, drain: Drain) -> i64 {
+    pub fn absolute_excess(&self, change: Change) -> i64 {
         self.selected_value() as i64
             - self.target.value() as i64
-            - drain.value as i64
+            - change.value as i64
             - self.target.fee.absolute as i64
     }
 
     /// How much the current selection overshoots the value needed to satisfy RBF's rule 4.
-    pub fn replacement_excess(&self, drain: Drain) -> i64 {
+    pub fn replacement_excess(&self, change: Change) -> i64 {
         let mut replacement_excess_needed = 0;
         if let Some(replace) = self.target.fee.replace {
             replacement_excess_needed =
-                replace.min_fee_to_do_replacement(self.weight(drain.weights))
+                replace.min_fee_to_do_replacement(self.weight(change.weights))
         }
         self.selected_value() as i64
             - self.target.value() as i64
-            - drain.value as i64
+            - change.value as i64
             - replacement_excess_needed as i64
     }
 
     /// Same as [replacement_excess](Self::replacement_excess) except the replacement fee
     /// is calculated using weight units directly without any conversion to vbytes.
-    pub fn replacement_excess_wu(&self, drain: Drain) -> i64 {
+    pub fn replacement_excess_wu(&self, change: Change) -> i64 {
         let mut replacement_excess_needed = 0;
         if let Some(replace) = self.target.fee.replace {
             replacement_excess_needed =
-                replace.min_fee_to_do_replacement_wu(self.weight(drain.weights))
+                replace.min_fee_to_do_replacement_wu(self.weight(change.weights))
         }
         self.selected_value() as i64
             - self.target.value() as i64
-            - drain.value as i64
+            - change.value as i64
             - replacement_excess_needed as i64
     }
 
@@ -291,56 +291,59 @@ impl<'a> CoinSelector<'a> {
     /// the `target`'s value and weight. It is essentially telling you what target feerate you currently have.
     ///
     /// Returns `None` if the feerate would be negative or infinity.
-    pub fn implied_feerate(&self, drain: Drain) -> Option<FeeRate> {
+    pub fn implied_feerate(&self, change: Change) -> Option<FeeRate> {
         let numerator = self.selected_value() as i64
             - self.target.outputs.value_sum as i64
-            - drain.value as i64;
-        let denom = self.weight(drain.weights);
+            - change.value as i64;
+        let denom = self.weight(change.weights);
         if numerator < 0 || denom == 0 {
             return None;
         }
         Some(FeeRate::from_sat_per_wu(numerator as f64 / denom as f64))
     }
 
-    /// The fee the current selection and `drain_weight` should pay to satisfy the
+    /// The fee the current selection and `change_weight` should pay to satisfy the
     /// [`target`](Self::target)'s [`TargetFee`].
     ///
     /// This compares the fee calculated from the target feerate with the fee calculated from the
     /// [`Replace`] constraints and returns the larger of the two.
     ///
-    /// `drain_weight` can be 0 to indicate no draining output.
-    pub fn implied_fee(&self, drain_weights: DrainWeights) -> u64 {
+    /// `change_weight` can be 0 to indicate no change output.
+    pub fn implied_fee(&self, change_weights: ChangeWeights) -> u64 {
         let mut implied_fee = self
-            .implied_fee_from_feerate(drain_weights)
+            .implied_fee_from_feerate(change_weights)
             .max(self.target.fee.absolute);
 
         if let Some(replace) = self.target.fee.replace {
             implied_fee = Ord::max(
                 implied_fee,
-                replace.min_fee_to_do_replacement(self.weight(drain_weights)),
+                replace.min_fee_to_do_replacement(self.weight(change_weights)),
             );
         }
 
         implied_fee
     }
 
-    fn implied_fee_from_feerate(&self, drain_weights: DrainWeights) -> u64 {
-        self.target.fee.rate.implied_fee(self.weight(drain_weights))
-    }
-
-    fn implied_fee_from_feerate_wu(&self, drain_weights: DrainWeights) -> u64 {
+    fn implied_fee_from_feerate(&self, change_weights: ChangeWeights) -> u64 {
         self.target
             .fee
             .rate
-            .implied_fee_wu(self.weight(drain_weights))
+            .implied_fee(self.weight(change_weights))
+    }
+
+    fn implied_fee_from_feerate_wu(&self, change_weights: ChangeWeights) -> u64 {
+        self.target
+            .fee
+            .rate
+            .implied_fee_wu(self.weight(change_weights))
     }
 
     /// The actual fee the selection would pay if it was used in a transaction that had
-    /// `target_value` value for outputs and change output of `drain_value`.
+    /// `target_value` value for outputs and change output of `change_value`.
     ///
     /// This can be negative when the selection is invalid (outputs are greater than inputs).
-    pub fn fee(&self, drain_value: u64) -> i64 {
-        self.selected_value() as i64 - self.target.value() as i64 - drain_value as i64
+    pub fn fee(&self, change_value: u64) -> i64 {
+        self.selected_value() as i64 - self.target.value() as i64 - change_value as i64
     }
 
     /// The value of the current selected inputs minus the fee needed to pay for the selected inputs
@@ -414,20 +417,20 @@ impl<'a> CoinSelector<'a> {
     /// You can pass in an `excess_discount` which must be between `0.0..1.0`. Passing in `1.0` gives you no discount
     ///
     /// [waste metric]: https://bitcoin.stackexchange.com/questions/113622/what-does-waste-metric-mean-in-the-context-of-coin-selection
-    pub fn waste(&self, long_term_feerate: FeeRate, drain: Drain, excess_discount: f64) -> f64 {
+    pub fn waste(&self, long_term_feerate: FeeRate, change: Change, excess_discount: f64) -> f64 {
         debug_assert!((0.0..=1.0).contains(&excess_discount));
         let mut waste = self.input_waste(long_term_feerate);
 
-        if drain.is_none() {
+        if change.is_none() {
             // We don't allow negative excess waste since negative excess just means you haven't
             // satisified target yet in which case you probably shouldn't be calling this function.
-            let mut excess_waste = self.excess(drain).max(0) as f64;
+            let mut excess_waste = self.excess(change).max(0) as f64;
             // we allow caller to discount this waste depending on how wasteful excess actually is
             // to them.
             excess_waste *= excess_discount.clamp(0.0, 1.0);
             waste += excess_waste;
         } else {
-            waste += drain.weights.waste(
+            waste += change.weights.waste(
                 self.target.fee.rate,
                 long_term_feerate,
                 self.target.outputs.n_outputs,
@@ -489,15 +492,15 @@ impl<'a> CoinSelector<'a> {
         self.unselected_indices().next().is_none()
     }
 
-    /// Whether the tx implied by the current selection plus a drain of `drain_weights` is within
-    /// [`Target::max_weight`]. Pass [`DrainWeights::NONE`] for a changeless tx.
+    /// Whether the tx implied by the current selection plus a change of `change_weights` is within
+    /// [`Target::max_weight`]. Pass [`ChangeWeights::NONE`] for a changeless tx.
     ///
     /// Always `true` when `max_weight` is `None`. Note this is the *anti-monotone* half of
     /// feasibility (adding inputs adds weight), so it is kept separate from the monotone
     /// value-only [`is_funded`](Self::is_funded).
-    pub fn is_within_max_weight(&self, drain_weights: DrainWeights) -> bool {
+    pub fn is_within_max_weight(&self, change_weights: ChangeWeights) -> bool {
         match self.target.max_weight {
-            Some(max_weight) => self.weight(drain_weights) <= max_weight,
+            Some(max_weight) => self.weight(change_weights) <= max_weight,
             None => true,
         }
     }
@@ -507,21 +510,21 @@ impl<'a> CoinSelector<'a> {
     ///
     /// This is **monotone**: selecting more never un-meets it. It deliberately does *not* include
     /// the weight cap — see [`is_within_max_weight`](Self::is_within_max_weight).
-    pub fn is_funded_with_drain(&self, drain: Drain) -> bool {
-        self.excess(drain) >= 0
+    pub fn is_funded_with_change(&self, change: Change) -> bool {
+        self.excess(change) >= 0
     }
 
     /// Whether the selection covers the target **value** (net of input fees), i.e. [`excess`] is
     /// non-negative. **Monotone** (selecting more never un-meets it), and it deliberately does
     /// *not* check [`Target::max_weight`] — that is the separate, anti-monotone
-    /// [`is_within_max_weight`]. See [`is_funded_with_drain`] for the version that
-    /// accounts for a specific `drain`.
+    /// [`is_within_max_weight`]. See [`is_funded_with_change`] for the version that
+    /// accounts for a specific `change`.
     ///
     /// [`excess`]: Self::excess
     /// [`is_within_max_weight`]: Self::is_within_max_weight
-    /// [`is_funded_with_drain`]: Self::is_funded_with_drain
+    /// [`is_funded_with_change`]: Self::is_funded_with_change
     pub fn is_funded(&self) -> bool {
-        self.is_funded_with_drain(Drain::NONE)
+        self.is_funded_with_change(Change::NONE)
     }
 
     /// Select all unselected candidates
@@ -537,19 +540,19 @@ impl<'a> CoinSelector<'a> {
     /// constraints of the [`target`](Self::target) and respecting `change_policy`.
     ///
     /// If not change output should be added according to policy then it will return `None`.
-    pub fn drain_value(&self, change_policy: ChangePolicy) -> Option<u64> {
-        let excess = self.excess(Drain {
-            weights: change_policy.drain_weights,
+    pub fn change_value(&self, change_policy: ChangePolicy) -> Option<u64> {
+        let excess = self.excess(Change {
+            weights: change_policy.change_weights,
             value: 0,
         });
         if excess > change_policy.min_value as i64 {
             debug_assert_eq!(
                 self.is_funded(),
-                self.is_funded_with_drain(Drain {
-                    weights: change_policy.drain_weights,
+                self.is_funded_with_change(Change {
+                    weights: change_policy.change_weights,
                     value: excess as u64
                 }),
-                "if the target is met without a drain it must be met after adding the drain"
+                "if the target is met without a change it must be met after adding the change"
             );
             Some(excess as u64)
         } else {
@@ -558,23 +561,23 @@ impl<'a> CoinSelector<'a> {
     }
 
     /// Figures out whether the current selection should have a change output given the
-    /// `change_policy`. If it should not, then it will return [`Drain::NONE`]. The value of the
-    /// `Drain` will be the same as [`drain_value`].
+    /// `change_policy`. If it should not, then it will return [`Change::NONE`]. The value of the
+    /// `Change` will be the same as [`change_value`].
     ///
-    /// If [`is_funded`] returns true for this selection then [`is_funded_with_drain`] will
-    /// also be true if you pass in the drain returned from this method.
+    /// If [`is_funded`] returns true for this selection then [`is_funded_with_change`] will
+    /// also be true if you pass in the change returned from this method.
     ///
-    /// [`drain_value`]: Self::drain_value
-    /// [`is_funded_with_drain`]: Self::is_funded_with_drain
+    /// [`change_value`]: Self::change_value
+    /// [`is_funded_with_change`]: Self::is_funded_with_change
     /// [`is_funded`]: Self::is_funded
     #[must_use]
-    pub fn drain(&self, change_policy: ChangePolicy) -> Drain {
-        match self.drain_value(change_policy) {
-            Some(value) => Drain {
-                weights: change_policy.drain_weights,
+    pub fn change(&self, change_policy: ChangePolicy) -> Change {
+        match self.change_value(change_policy) {
+            Some(value) => Change {
+                weights: change_policy.change_weights,
                 value,
             },
-            None => Drain::NONE,
+            None => Change::NONE,
         }
     }
 
@@ -605,10 +608,10 @@ impl<'a> CoinSelector<'a> {
     pub fn select_until_target_met(&mut self) -> Result<(), SelectError> {
         self.select_until(|cs| cs.is_funded()).ok_or_else(|| {
             SelectError::InsufficientFunds(InsufficientFunds {
-                missing: self.excess(Drain::NONE).unsigned_abs(),
+                missing: self.excess(Change::NONE).unsigned_abs(),
             })
         })?;
-        if !self.is_within_max_weight(DrainWeights::NONE) {
+        if !self.is_within_max_weight(ChangeWeights::NONE) {
             return Err(SelectError::MaxWeightExceeded);
         }
         Ok(())
@@ -643,7 +646,7 @@ impl<'a> CoinSelector<'a> {
     /// last (random) input pushed it — at or above `change_lower`. So, like Core, we use a fixed
     /// lower bound rather than randomizing the target.
     ///
-    /// On success it returns the [`Drain`] to attach, whose value is the achieved change (at least
+    /// On success it returns the [`Change`] to attach, whose value is the achieved change (at least
     /// `change_lower`). Returns [`SelectError::InsufficientFunds`] if the target plus `change_lower`
     /// can't be met with the available candidates, or [`SelectError::MaxWeightExceeded`] if it can be
     /// met but the resulting selection exceeds the weight cap.
@@ -658,19 +661,19 @@ impl<'a> CoinSelector<'a> {
     // the max-weight PR lands.
     pub fn select_srd(
         &mut self,
-        drain_weights: DrainWeights,
+        change_weights: ChangeWeights,
         change_lower: u64,
         rng: impl FnMut() -> u64,
-    ) -> Result<Drain, SelectError> {
+    ) -> Result<Change, SelectError> {
         self.shuffle_candidates(rng);
 
         let mut is_within_max_weight = false;
         let mut excess = 0_i64;
 
         self.select_until(|cs| {
-            is_within_max_weight = cs.is_within_max_weight(drain_weights);
-            excess = cs.excess(Drain {
-                weights: drain_weights,
+            is_within_max_weight = cs.is_within_max_weight(change_weights);
+            excess = cs.excess(Change {
+                weights: change_weights,
                 value: 0,
             });
             excess >= change_lower as i64 || !is_within_max_weight
@@ -685,8 +688,8 @@ impl<'a> CoinSelector<'a> {
             return Err(SelectError::MaxWeightExceeded);
         }
 
-        Ok(Drain {
-            weights: drain_weights,
+        Ok(Change {
+            weights: change_weights,
             value: excess as u64,
         })
     }
@@ -713,7 +716,7 @@ impl<'a> CoinSelector<'a> {
     /// Run branch and bound to minimize the score of the provided [`BnbMetric`].
     ///
     /// The method keeps trying until no better solution can be found, or we reach `max_rounds`. If a
-    /// solution is found, the score and the change output ([`Drain`]) that the metric decided on are
+    /// solution is found, the score and the change output ([`Change`]) that the metric decided on are
     /// returned. Otherwise, we error with [`NoBnbSolution`].
     ///
     /// Use [`CoinSelector::bnb_solutions`] to access the branch and bound iterator directly.
@@ -721,7 +724,7 @@ impl<'a> CoinSelector<'a> {
         &mut self,
         metric: M,
         max_rounds: usize,
-    ) -> Result<(Ordf64, Drain), NoBnbSolution> {
+    ) -> Result<(Ordf64, Change), NoBnbSolution> {
         let mut iter = crate::bnb::BnbIter::new(self.clone(), metric);
         let mut rounds = 0_usize;
         let best = iter
@@ -731,9 +734,9 @@ impl<'a> CoinSelector<'a> {
             .flatten()
             .last();
         if let Some((selector, score)) = best {
-            let drain = iter.metric.drain(&selector);
+            let change = iter.metric.change(&selector);
             *self = selector;
-            return Ok((score, drain));
+            return Ok((score, change));
         }
 
         // No solution. If the iterator still has an item we stopped at the round limit and a

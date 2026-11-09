@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use bdk_coin_select::{
-    float::Ordf64, metrics::LowestFee, BnbMetric, Candidate, CoinSelector, Drain, DrainWeights,
+    float::Ordf64, metrics::LowestFee, BnbMetric, Candidate, Change, ChangeWeights, CoinSelector,
     FeeRate, NoBnbSolution, Replace, Target, TargetFee, TargetOutputs,
 };
 use proptest::{
@@ -62,7 +62,7 @@ where
     println!("\texhaustive search:");
     let now = std::time::Instant::now();
     let exp_result = exhaustive_search(&mut exp_selection, &mut metric);
-    let exp_change = metric.drain(&exp_selection);
+    let exp_change = metric.change(&exp_selection);
     let exp_result_str = result_string(&exp_result.ok_or("no possible solution"), exp_change);
     println!(
         "\t\telapsed={:8}s result={}",
@@ -72,20 +72,20 @@ where
     // bonus check: ensure replacement fee is respected
     if exp_result.is_some() {
         let selected_value = exp_selection.selected_value();
-        let drain = metric.drain(&exp_selection);
+        let change = metric.change(&exp_selection);
         let target_value = target.value();
         let replace_fee = params
             .replace
-            .map(|replace| replace.min_fee_to_do_replacement(exp_selection.weight(drain.weights)))
+            .map(|replace| replace.min_fee_to_do_replacement(exp_selection.weight(change.weights)))
             .unwrap_or(0);
-        assert!(selected_value - target_value - drain.value >= replace_fee);
+        assert!(selected_value - target_value - change.value >= replace_fee);
     }
 
     println!("\tbranch and bound:");
     let now = std::time::Instant::now();
     let mut bnb_metric = metric.clone();
     let result = bnb_search(&mut selection, metric, usize::MAX);
-    let change = bnb_metric.drain(&selection);
+    let change = bnb_metric.change(&selection);
     let result_str = result_string(&result, change);
     println!(
         "\t\telapsed={:8}s result={}",
@@ -109,13 +109,13 @@ where
 
             // bonus check: ensure replacement fee is respected
             let selected_value = selection.selected_value();
-            let drain = bnb_metric.drain(&selection);
+            let change = bnb_metric.change(&selection);
             let target_value = target.value();
             let replace_fee = params
                 .replace
-                .map(|replace| replace.min_fee_to_do_replacement(selection.weight(drain.weights)))
+                .map(|replace| replace.min_fee_to_do_replacement(selection.weight(change.weights)))
                 .unwrap_or(0);
-            assert!(selected_value - target_value - drain.value >= replace_fee);
+            assert!(selected_value - target_value - change.value >= replace_fee);
         }
         _ => prop_assert!(result.is_err(), "should not find solution"),
     }
@@ -156,7 +156,7 @@ where
             // possible (can overshoot) traversing down this branch. Let's check that!
 
             if let Some(score) = metric.score(&cs) {
-                let has_change = metric.drain(&cs).is_some();
+                let has_change = metric.change(&cs).is_some();
                 prop_assert!(
                     score >= lb_score,
                     "checking branch: selection={} score={} change={} lb={}",
@@ -173,8 +173,8 @@ where
                 .filter(|(_, inc)| *inc)
             {
                 if let Some(descendant_score) = metric.score(&descendant_cs) {
-                    let parent_has_change = metric.drain(&cs).is_some();
-                    let descendant_has_change = metric.drain(&descendant_cs).is_some();
+                    let parent_has_change = metric.change(&cs).is_some();
+                    let descendant_has_change = metric.change(&descendant_cs).is_some();
                     prop_assert!(
                         descendant_score >= lb_score,
                         "
@@ -205,10 +205,10 @@ pub struct StrategyParams {
     pub replace: Option<Replace>,
     pub feerate: f64,
     pub feerate_lt_diff: f64,
-    pub drain_weight: u32,
-    pub drain_spend_weight: u32,
-    pub drain_dust: u64,
-    pub n_drain_outputs: usize,
+    pub change_weight: u32,
+    pub change_spend_weight: u32,
+    pub change_dust: u64,
+    pub n_change_outputs: usize,
     pub max_weight: Option<u64>,
 }
 
@@ -237,11 +237,11 @@ impl StrategyParams {
         FeeRate::from_sat_per_vb((self.feerate + self.feerate_lt_diff).max(1.0))
     }
 
-    pub fn drain_weights(&self) -> DrainWeights {
-        DrainWeights {
-            output_weight: self.drain_weight as u64,
-            spend_weight: self.drain_spend_weight as u64,
-            n_outputs: self.n_drain_outputs,
+    pub fn change_weights(&self) -> ChangeWeights {
+        ChangeWeights {
+            output_weight: self.change_weight as u64,
+            spend_weight: self.change_spend_weight as u64,
+            n_outputs: self.n_change_outputs,
         }
     }
 
@@ -253,7 +253,7 @@ impl StrategyParams {
         LowestFee {
             long_term_feerate: self.long_term_feerate(),
             dust_relay_feerate: self.dust_relay_feerate(),
-            drain_weights: self.drain_weights(),
+            change_weights: self.change_weights(),
         }
     }
 }
@@ -379,7 +379,7 @@ where
 /// exact weight model and is independent of the BnB weight prune it audits. Exponential — small `n`
 /// only.
 pub fn exact_selection_possible(cs: &CoinSelector) -> bool {
-    let feasible = |s: &CoinSelector| s.is_funded() && s.is_within_max_weight(DrainWeights::NONE);
+    let feasible = |s: &CoinSelector| s.is_funded() && s.is_within_max_weight(ChangeWeights::NONE);
     // the current selection itself (no additions) is a valid subset and isn't yielded by the iter
     feasible(cs)
         || ExhaustiveIter::new(cs)
@@ -409,18 +409,21 @@ where
     Ok((score, rounds))
 }
 
-pub fn result_string<E>(res: &Result<(Ordf64, usize), E>, change: Drain) -> String
+pub fn result_string<E>(res: &Result<(Ordf64, usize), E>, change: Change) -> String
 where
     E: std::fmt::Debug,
 {
     match res {
         Ok((score, rounds)) => {
-            let drain = if change.is_some() {
+            let change_str = if change.is_some() {
                 format!("{:?}", change)
             } else {
                 "None".to_string()
             };
-            format!("Ok(score={} rounds={} drain={})", score, rounds, drain)
+            format!(
+                "Ok(score={} rounds={} change={})",
+                score, rounds, change_str
+            )
         }
         err => format!("{:?}", err),
     }

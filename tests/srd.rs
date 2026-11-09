@@ -2,7 +2,7 @@
 mod common;
 
 use bdk_coin_select::{
-    Candidate, CoinSelector, Drain, DrainWeights, FeeRate, SelectError, Target, TargetFee,
+    Candidate, Change, ChangeWeights, CoinSelector, FeeRate, SelectError, Target, TargetFee,
     TargetOutputs, CHANGE_LOWER, TR_SPK_WEIGHT, TXOUT_BASE_WEIGHT,
 };
 
@@ -27,38 +27,38 @@ fn target(value: u64, feerate: f64) -> Target {
 }
 
 /// Whenever SRD succeeds, the change must be at least `change_lower` and the selection must actually
-/// meet the target with that drain.
+/// meet the target with that change.
 #[test]
 fn srd_success_yields_healthy_change_that_meets_target() {
     let candidates = common::gen_candidates(60);
     let target = target(200_000, 10.0);
-    let drain_weights = DrainWeights::TR_KEYSPEND;
+    let change_weights = ChangeWeights::TR_KEYSPEND;
 
     let mut successes = 0;
     for seed in 0..300u64 {
         let mut cs = CoinSelector::new(&candidates, target);
-        let result = cs.select_srd(drain_weights, CHANGE_LOWER, splitmix64(seed));
+        let result = cs.select_srd(change_weights, CHANGE_LOWER, splitmix64(seed));
 
-        if let Ok(drain) = result {
+        if let Ok(change) = result {
             successes += 1;
             assert!(
-                drain.value >= CHANGE_LOWER,
+                change.value >= CHANGE_LOWER,
                 "seed {}: change {} is below CHANGE_LOWER",
                 seed,
-                drain.value
+                change.value
             );
-            assert_eq!(drain.weights, drain_weights);
+            assert_eq!(change.weights, change_weights);
             assert!(
-                cs.is_funded_with_drain(drain),
-                "seed {}: target not met with the returned drain",
+                cs.is_funded_with_change(change),
+                "seed {}: target not met with the returned change",
                 seed
             );
-            // The reported change equals the actual excess available to the drain.
-            let excess = cs.excess(Drain {
-                weights: drain_weights,
+            // The reported change equals the actual excess available to the change.
+            let excess = cs.excess(Change {
+                weights: change_weights,
                 value: 0,
             });
-            assert_eq!(drain.value as i64, excess);
+            assert_eq!(change.value as i64, excess);
         }
     }
     assert!(successes > 0, "expected SRD to succeed for some seeds");
@@ -86,11 +86,11 @@ fn srd_insufficient_funds() {
         },
     ];
     let target = target(200_000, 5.0);
-    let drain_weights = DrainWeights::TR_KEYSPEND;
+    let change_weights = ChangeWeights::TR_KEYSPEND;
 
     for seed in 0..50u64 {
         let mut cs = CoinSelector::new(&candidates, target);
-        let result = cs.select_srd(drain_weights, CHANGE_LOWER, splitmix64(seed));
+        let result = cs.select_srd(change_weights, CHANGE_LOWER, splitmix64(seed));
         assert!(
             matches!(result, Err(SelectError::InsufficientFunds(_))),
             "seed {}: expected InsufficientFunds, got {:?}",
@@ -115,18 +115,18 @@ fn srd_max_weight_exceeded() {
         };
         10
     ];
-    let drain_weights = DrainWeights::TR_KEYSPEND;
-    let drain = Drain {
-        weights: drain_weights,
+    let change_weights = ChangeWeights::TR_KEYSPEND;
+    let change = Change {
+        weights: change_weights,
         value: 0,
     };
 
     // Weight of the smallest selection that reaches target + change_lower, with no cap.
     let mut probe = CoinSelector::new(&candidates, target(200_000, 5.0));
     probe
-        .select_until(|cs| cs.excess(drain) >= CHANGE_LOWER as i64)
+        .select_until(|cs| cs.excess(change) >= CHANGE_LOWER as i64)
         .expect("candidates can cover target + change_lower");
-    let needed_weight = probe.weight(drain_weights);
+    let needed_weight = probe.weight(change_weights);
 
     // Cap just below that, so SRD trips the weight limit as it reaches `change_lower`.
     let capped = Target {
@@ -136,7 +136,7 @@ fn srd_max_weight_exceeded() {
 
     for seed in 0..20u64 {
         let mut cs = CoinSelector::new(&candidates, capped);
-        let result = cs.select_srd(drain_weights, CHANGE_LOWER, splitmix64(seed));
+        let result = cs.select_srd(change_weights, CHANGE_LOWER, splitmix64(seed));
         assert!(
             matches!(result, Err(SelectError::MaxWeightExceeded)),
             "seed {}: expected MaxWeightExceeded, got {:?}",
@@ -152,20 +152,20 @@ fn srd_max_weight_exceeded() {
 fn srd_adds_nothing_when_already_sufficient() {
     let candidates = common::gen_candidates(60);
     let target = target(200_000, 6.0);
-    let drain_weights = DrainWeights::TR_KEYSPEND;
-    let drain = Drain {
-        weights: drain_weights,
+    let change_weights = ChangeWeights::TR_KEYSPEND;
+    let change = Change {
+        weights: change_weights,
         value: 0,
     };
 
     // Preselect enough that the change already exceeds `change_lower`.
     let mut cs = CoinSelector::new(&candidates, target);
-    cs.select_until(|cs| cs.excess(drain) >= CHANGE_LOWER as i64)
+    cs.select_until(|cs| cs.excess(change) >= CHANGE_LOWER as i64)
         .expect("candidates can cover target + change_lower");
     let before: Vec<usize> = cs.selected_indices().iter().collect();
 
     let out = cs
-        .select_srd(drain_weights, CHANGE_LOWER, splitmix64(3))
+        .select_srd(change_weights, CHANGE_LOWER, splitmix64(3))
         .expect("already sufficient");
 
     let after: Vec<usize> = cs.selected_indices().iter().collect();

@@ -3,8 +3,8 @@
 mod common;
 use bdk_coin_select::metrics::{Changeless, LowestFee};
 use bdk_coin_select::{
-    BnbMetric, Candidate, ChangePolicy, CoinSelector, Drain, DrainWeights, FeeRate, NoBnbSolution,
-    Replace, Target, TargetFee, TargetOutputs, TXIN_BASE_WEIGHT, TXOUT_BASE_WEIGHT,
+    BnbMetric, Candidate, Change, ChangePolicy, ChangeWeights, CoinSelector, FeeRate,
+    NoBnbSolution, Replace, Target, TargetFee, TargetOutputs, TXIN_BASE_WEIGHT, TXOUT_BASE_WEIGHT,
     TX_FIXED_FIELD_WEIGHT,
 };
 use proptest::prelude::*;
@@ -24,13 +24,13 @@ proptest! {
         replace in common::maybe_replace(0u64..10_000), // The weight of the transaction we're replacing
         feerate in 1.0..100.0_f64,          // feerate (sats/vb)
         feerate_lt_diff in -5.0..50.0_f64,  // longterm feerate diff (sats/vb)
-        drain_weight in 100..=500_u32,      // drain weight (wu)
-        drain_spend_weight in 1..=2000_u32, // drain spend weight (wu)
-        drain_dust in 100..=1000_u64,       // drain dust (sats)
-        n_drain_outputs in 1usize..150,     // the number of drain outputs
+        change_weight in 100..=500_u32,      // change weight (wu)
+        change_spend_weight in 1..=2000_u32, // change spend weight (wu)
+        change_dust in 100..=1000_u64,       // change dust (sats)
+        n_change_outputs in 1usize..150,     // the number of change outputs
         max_weight in common::maybe_max_weight(500u64..4_000), // optional max tx weight cap (wu)
     ) {
-        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, drain_weight, drain_spend_weight, drain_dust, n_drain_outputs , max_weight };
+        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, change_weight, change_spend_weight, change_dust, n_change_outputs , max_weight };
         let candidates = common::gen_candidates(params.n_candidates);
         let metric = params.lowest_fee_metric();
         common::can_eventually_find_best_solution(params, candidates, metric)?;
@@ -46,13 +46,13 @@ proptest! {
         replace in common::maybe_replace(0u64..10_000), // The weight of the transaction we're replacing
         feerate in 1.0..100.0_f64,          // feerate (sats/vb)
         feerate_lt_diff in -5.0..50.0_f64,  // longterm feerate diff (sats/vb)
-        drain_weight in 100..=500_u32,      // drain weight (wu)
-        drain_spend_weight in 1..=2000_u32, // drain spend weight (wu)
-        drain_dust in 100..=1000_u64,       // drain dust (sats)
-        n_drain_outputs in 1usize..150,     // the number of drain outputs
+        change_weight in 100..=500_u32,      // change weight (wu)
+        change_spend_weight in 1..=2000_u32, // change spend weight (wu)
+        change_dust in 100..=1000_u64,       // change dust (sats)
+        n_change_outputs in 1usize..150,     // the number of change outputs
         max_weight in common::maybe_max_weight(500u64..4_000), // optional max tx weight cap (wu)
     ) {
-        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, drain_weight, drain_spend_weight, drain_dust, n_drain_outputs , max_weight };
+        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, change_weight, change_spend_weight, change_dust, n_change_outputs , max_weight };
         let candidates = common::gen_candidates(params.n_candidates);
         let metric = params.lowest_fee_metric();
         common::ensure_bound_is_not_too_tight(params, candidates, metric)?;
@@ -68,10 +68,10 @@ proptest! {
         replace in common::maybe_replace(0u64..10_000), // The weight of the transaction we're replacing
         feerate in 1.0..100.0_f64,          // feerate (sats/vb)
         feerate_lt_diff in -5.0..50.0_f64,  // longterm feerate diff (sats/vb)
-        drain_weight in 100..=500_u32,      // drain weight (wu)
-        drain_spend_weight in 1..=2000_u32, // drain spend weight (wu)
-        drain_dust in 100..=1000_u64,       // drain dust (sats)
-        n_drain_outputs in 1usize..150,     // the number of drain outputs
+        change_weight in 100..=500_u32,      // change weight (wu)
+        change_spend_weight in 1..=2000_u32, // change spend weight (wu)
+        change_dust in 100..=1000_u64,       // change dust (sats)
+        n_change_outputs in 1usize..150,     // the number of change outputs
         // No `max_weight` here: `n` is too large for the exhaustive oracle, and this test's
         // impossibility check relies on the (value-only) `is_fundable`, so a weight cap
         // (which BnB could fail on while value is reachable) would break it. Cap handling is
@@ -79,7 +79,7 @@ proptest! {
     ) {
         println!("== TEST ==");
 
-        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, drain_weight, drain_spend_weight, drain_dust, n_drain_outputs, max_weight: None };
+        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, change_weight, change_spend_weight, change_dust, n_change_outputs, max_weight: None };
         println!("{:?}", params);
 
         let candidates = vec![
@@ -117,14 +117,14 @@ proptest! {
         replace in common::maybe_replace(0u64..10_000), // The weight of the transaction we're replacing
         feerate in 1.0..100.0_f64,          // feerate (sats/vb)
         feerate_lt_diff in -5.0..50.0_f64,  // longterm feerate diff (sats/vb)
-        drain_weight in 100..=500_u32,      // drain weight (wu)
-        drain_spend_weight in 1..=2000_u32, // drain spend weight (wu)
-        drain_dust in 100..=1000_u64,       // drain dust (sats)
-        n_drain_outputs in 1usize..150,     // the number of drain outputs
+        change_weight in 100..=500_u32,      // change weight (wu)
+        change_spend_weight in 1..=2000_u32, // change spend weight (wu)
+        change_dust in 100..=1000_u64,       // change dust (sats)
+        n_change_outputs in 1usize..150,     // the number of change outputs
         max_weight in common::maybe_max_weight(500u64..4_000), // optional max tx weight cap (wu)
     ) {
 
-        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, drain_weight, drain_spend_weight, drain_dust, n_drain_outputs , max_weight };
+        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, change_weight, change_spend_weight, change_dust, n_change_outputs , max_weight };
         let candidates = common::gen_candidates(params.n_candidates);
         let metric = params.lowest_fee_metric();
         common::compare_against_benchmarks(params, candidates, metric)?;
@@ -151,13 +151,13 @@ proptest! {
         replace in common::maybe_replace(0u64..10_000),
         feerate in 1.0..100.0_f64,
         feerate_lt_diff in -5.0..50.0_f64,
-        drain_weight in 100..=500_u32,
-        drain_spend_weight in 1..=2000_u32,
-        drain_dust in 100..=1000_u64,
-        n_drain_outputs in 1usize..150,
+        change_weight in 100..=500_u32,
+        change_spend_weight in 1..=2000_u32,
+        change_dust in 100..=1000_u64,
+        n_change_outputs in 1usize..150,
         max_weight in common::maybe_max_weight(500u64..4_000), // TRUC-tight -> binds often, small DP
     ) {
-        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, drain_weight, drain_spend_weight, drain_dust, n_drain_outputs, max_weight };
+        let params = common::StrategyParams { n_candidates, target_value, n_target_outputs, target_weight, replace, feerate, feerate_lt_diff, change_weight, change_spend_weight, change_dust, n_change_outputs, max_weight };
         let candidates = common::gen_candidates(params.n_candidates);
         let target = params.target();
         let metric = params.lowest_fee_metric();
@@ -186,11 +186,11 @@ fn combined_changeless_metric() {
         replace: None,
         feerate: 5.0,
         feerate_lt_diff: -4.0,
-        drain_weight: 200,
-        drain_spend_weight: 600,
-        drain_dust: 200,
+        change_weight: 200,
+        change_spend_weight: 600,
+        change_dust: 200,
         n_target_outputs: 1,
-        n_drain_outputs: 1,
+        n_change_outputs: 1,
         max_weight: None,
     };
 
@@ -217,7 +217,7 @@ fn combined_changeless_metric() {
 
 /// Because this metric decides change optimally, it never creates a change output whose value
 /// wouldn't cover the future cost of spending it. Here a single input overshoots the target by only
-/// ~130 sats — far less than the drain's spend cost — so the fee-optimal choice is to burn the
+/// ~130 sats — far less than the change's spend cost — so the fee-optimal choice is to burn the
 /// excess (changeless) rather than add not-worth-it change, and adding a further input to shed the
 /// excess only raises the fee.
 #[test]
@@ -253,7 +253,7 @@ fn does_not_create_change_below_spend_cost() {
 
     let mut cs = CoinSelector::new(&candidates, target);
 
-    let drain_weights = DrainWeights {
+    let change_weights = ChangeWeights {
         output_weight: 100,
         spend_weight: 1_000,
         n_outputs: 1,
@@ -262,7 +262,7 @@ fn does_not_create_change_below_spend_cost() {
     let mut metric = LowestFee {
         long_term_feerate: FeeRate::from_sat_per_vb(1.0),
         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-        drain_weights,
+        change_weights,
     };
 
     let (score, _) = common::bnb_search(&mut cs, metric, 10).expect("finds solution");
@@ -275,7 +275,7 @@ fn does_not_create_change_below_spend_cost() {
     };
     assert_eq!(cs.selected_indices(), expected.selected_indices());
     assert!(
-        metric.drain(&cs).is_none(),
+        metric.change(&cs).is_none(),
         "optimal selection must be changeless"
     );
 
@@ -320,7 +320,7 @@ fn zero_fee_tx() {
         },
     ];
 
-    let drain_weights = DrainWeights {
+    let change_weights = ChangeWeights {
         output_weight: 100,
         spend_weight: 1_000,
         n_outputs: 1,
@@ -330,7 +330,7 @@ fn zero_fee_tx() {
     let metric = LowestFee {
         long_term_feerate,
         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-        drain_weights,
+        change_weights,
     };
     let (_score, _rounds) = common::bnb_search(&mut cs, metric, 1000).expect("must find solution");
 }
@@ -349,7 +349,7 @@ fn err_metric() -> LowestFee {
     LowestFee {
         long_term_feerate: FeeRate::from_sat_per_vb(1.0),
         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-        drain_weights: DrainWeights::TR_KEYSPEND,
+        change_weights: ChangeWeights::TR_KEYSPEND,
     }
 }
 
@@ -443,7 +443,7 @@ fn identical_candidates_are_excluded_together_when_interleaved() {
     let metric = LowestFee {
         long_term_feerate: FeeRate::from_sat_per_vb(10.0),
         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-        drain_weights: DrainWeights::TR_KEYSPEND,
+        change_weights: ChangeWeights::TR_KEYSPEND,
     };
     let rounds = CoinSelector::new(&candidates, target)
         .bnb_solutions(metric)
@@ -469,7 +469,7 @@ fn bound_does_not_panic_on_f32_rounding() {
     let mut metric = LowestFee {
         long_term_feerate: FeeRate::ZERO,
         dust_relay_feerate: FeeRate::ZERO,
-        drain_weights: DrainWeights::TR_KEYSPEND,
+        change_weights: ChangeWeights::TR_KEYSPEND,
     };
     let cs = CoinSelector::new(&candidates, target);
     let bound = metric.bound(&cs).expect("target is reachable");
@@ -500,7 +500,7 @@ fn bound_is_admissible_at_large_values() {
     let mut metric = LowestFee {
         long_term_feerate: FeeRate::from_sat_per_vb(10.0),
         dust_relay_feerate: FeeRate::ZERO,
-        drain_weights: DrainWeights::TR_KEYSPEND,
+        change_weights: ChangeWeights::TR_KEYSPEND,
     };
     let mut cs = CoinSelector::new(&candidates, target);
     cs.select(0);
@@ -531,7 +531,7 @@ fn score_tells_apart_fees_above_2_pow_24() {
     let mut metric = LowestFee {
         long_term_feerate: FeeRate::ZERO,
         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-        drain_weights: DrainWeights::TR_KEYSPEND,
+        change_weights: ChangeWeights::TR_KEYSPEND,
     };
     let candidates = [
         Candidate::new_tr_keyspend(1_000 + fee),

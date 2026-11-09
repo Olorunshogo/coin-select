@@ -15,6 +15,7 @@
 - **Breaking:** `CoinSelector::selected_indices` and `CoinSelector::banned` now return `&Bitset` instead of `&BTreeSet<usize>`. `Bitset` exposes `contains`/`len`/`is_empty`/`iter` (#46)
 - Replace the internal `Cow<BTreeSet>`/`Cow<[usize]>` selection state with a `Bitset` and an `Arc`-shared candidate order, making the per-branch clones in branch-and-bound substantially cheaper (#46)
 - Fix compilation error when building with `--no-default-features` (#36)
+- **Breaking:** Renamed `Drain` to `Change` and `DrainWeights` to `ChangeWeights` (#22). The related methods and fields follow: `CoinSelector::drain` is now `CoinSelector::change`, `drain_value` is now `change_value`, `is_funded_with_drain` is now `is_funded_with_change`, `Target::output_weight_with_drain` is now `output_weight_with_change`, `BnbMetric::drain` is now `BnbMetric::change`, and the `drain_weights` fields of `ChangePolicy` and `LowestFee` are now `change_weights`. Custom `BnbMetric` implementations must rename their `drain` method.
 
 # 0.4.0
 

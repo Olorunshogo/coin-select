@@ -1,6 +1,6 @@
 mod common;
 use bdk_coin_select::{
-    float::Ordf64, BnbMetric, Candidate, CoinSelector, Drain, Target, TargetFee, TargetOutputs,
+    float::Ordf64, BnbMetric, Candidate, Change, CoinSelector, Target, TargetFee, TargetOutputs,
 };
 #[macro_use]
 extern crate alloc;
@@ -30,7 +30,7 @@ const EXCESS_RATIO: f64 = 1_000_000_f64;
 
 impl BnbMetric for MinExcessThenWeight {
     fn score(&mut self, cs: &CoinSelector<'_>) -> Option<Ordf64> {
-        let excess = cs.excess(Drain::NONE);
+        let excess = cs.excess(Change::NONE);
         if excess < 0 {
             None
         } else {
@@ -46,8 +46,8 @@ impl BnbMetric for MinExcessThenWeight {
         Some(Ordf64(cs.input_weight() as f64))
     }
 
-    fn drain(&mut self, _cs: &CoinSelector<'_>) -> Drain {
-        Drain::NONE
+    fn change(&mut self, _cs: &CoinSelector<'_>) -> Change {
+        Change::NONE
     }
 }
 
@@ -131,7 +131,7 @@ fn bnb_finds_solution_if_possible_in_n_iter() {
         .expect("found a solution");
 
     assert_eq!(rounds, 164);
-    let excess = sol.excess(Drain::NONE);
+    let excess = sol.excess(Change::NONE);
     assert_eq!(excess, 0);
 }
 

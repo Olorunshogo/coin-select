@@ -14,7 +14,7 @@
 #![allow(clippy::incompatible_msrv)]
 
 use bdk_coin_select::{
-    metrics::LowestFee, Candidate, CoinSelector, DrainWeights, FeeRate, Target, TargetFee,
+    metrics::LowestFee, Candidate, ChangeWeights, CoinSelector, FeeRate, Target, TargetFee,
     TargetOutputs, TR_SPK_WEIGHT, TXIN_BASE_WEIGHT, TXOUT_BASE_WEIGHT,
 };
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
@@ -83,7 +83,7 @@ fn bench_run_bnb_lowest_fee(c: &mut Criterion) {
                     let metric = LowestFee {
                         long_term_feerate,
                         dust_relay_feerate: FeeRate::from_sat_per_vb(1.0),
-                        drain_weights: DrainWeights::TR_KEYSPEND,
+                        change_weights: ChangeWeights::TR_KEYSPEND,
                     };
                     let _ = sel.run_bnb(metric, black_box(100_000));
                     sel
